@@ -23,7 +23,33 @@ const _kSelLoginOk =
 const _kSelMsgBox = 'div[contenteditable="true"][data-tab="10"],'
     'div[contenteditable="true"][aria-label*="mensagem"],'
     'div[contenteditable="true"][aria-label*="message"],'
-    'footer div[contenteditable="true"]';
+    'footer div[contenteditable="true"],'
+    '#main div[contenteditable="true"][role="textbox"],'
+    'div[contenteditable="true"][aria-placeholder*="ensagem"],'
+    'div[contenteditable="true"][aria-placeholder*="essage"]';
+
+/// Array JS literal com os seletores da caixa de mensagem.
+/// Usado dentro de blocos executeJavaScript para manter consistência.
+const _kMsgBoxSelsJs = '''[
+  'div[contenteditable="true"][data-tab="10"]',
+  'div[contenteditable="true"][aria-label*="mensagem"]',
+  'div[contenteditable="true"][aria-label*="message"]',
+  'footer div[contenteditable="true"]',
+  '#main div[contenteditable="true"][role="textbox"]',
+  'div[contenteditable="true"][aria-placeholder*="ensagem"]',
+  'div[contenteditable="true"][aria-placeholder*="essage"]'
+]''';
+
+/// Array JS literal com seletores da caixa de pesquisa (search/new-chat).
+const _kSearchBoxSelsJs = '''[
+  'div[contenteditable="true"][data-tab="3"]',
+  'div[contenteditable="true"][aria-label*="Pesquisar"]',
+  'div[contenteditable="true"][aria-label*="Search"]',
+  '[data-testid="chat-list-search"] div[contenteditable="true"]',
+  '#side div[contenteditable="true"][role="textbox"]',
+  'div[contenteditable="true"][aria-placeholder*="esquisar"]',
+  'div[contenteditable="true"][aria-placeholder*="earch"]'
+]''';
 
 /// Implementação do serviço de envio via WebView (Windows Desktop).
 /// Ações são realizadas por navegação de URL e injeção de JavaScript.
@@ -326,13 +352,22 @@ final class WebViewWhatsAppService implements WhatsAppSenderService {
       log('Caixa de msgs encontrada');
 
       // Aguarda Lexical editor inicializar completamente
-      await Future.delayed(const Duration(milliseconds: 300));
+      await Future.delayed(const Duration(milliseconds: 800));
 
       // 3. Injeta texto via múltiplos métodos (com verificação assíncrona).
+      //    Retry até 3× para lidar com re-renders do React/Lexical.
       log('Mensagem (${message.length} chars): "${message.length > 50 ? '${message.substring(0, 50)}…' : message}"');
-      final textOk = await _injectText(ctrl, message, debug: debug);
+      bool textOk = false;
+      for (int attempt = 1; attempt <= 3; attempt++) {
+        if (attempt > 1) {
+          log('Retry injeção #$attempt — aguardando 1s…');
+          await Future.delayed(const Duration(seconds: 1));
+        }
+        textOk = await _injectText(ctrl, message, debug: debug);
+        if (textOk) break;
+      }
       if (!textOk) {
-        log('FALHA: nenhum método de injeção funcionou');
+        log('FALHA: nenhum método de injeção funcionou após 3 tentativas');
         return false;
       }
 
@@ -372,12 +407,7 @@ final class WebViewWhatsAppService implements WhatsAppSenderService {
     Future<String> checkText() async {
       return await ctrl.executeJavaScript('''
         (function() {
-          var sels = [
-            'div[contenteditable="true"][data-tab="10"]',
-            'div[contenteditable="true"][aria-label*="mensagem"]',
-            'div[contenteditable="true"][aria-label*="message"]',
-            'footer div[contenteditable="true"]'
-          ];
+          var sels = $_kMsgBoxSelsJs;
           for (var s of sels) {
             var el = document.querySelector(s);
             if (el) {
@@ -395,12 +425,7 @@ final class WebViewWhatsAppService implements WhatsAppSenderService {
     log('M1: insertText sem limpeza');
     await ctrl.executeJavaScript('''
       (function(msg) {
-        var sels = [
-          'div[contenteditable="true"][data-tab="10"]',
-          'div[contenteditable="true"][aria-label*="mensagem"]',
-          'div[contenteditable="true"][aria-label*="message"]',
-          'footer div[contenteditable="true"]'
-        ];
+        var sels = $_kMsgBoxSelsJs;
         for (var s of sels) {
           var el = document.querySelector(s);
           if (el) {
@@ -422,12 +447,7 @@ final class WebViewWhatsAppService implements WhatsAppSenderService {
     log('M2: selectAllChildren + delete + insertText');
     await ctrl.executeJavaScript('''
       (function(msg) {
-        var sels = [
-          'div[contenteditable="true"][data-tab="10"]',
-          'div[contenteditable="true"][aria-label*="mensagem"]',
-          'div[contenteditable="true"][aria-label*="message"]',
-          'footer div[contenteditable="true"]'
-        ];
+        var sels = $_kMsgBoxSelsJs;
         for (var s of sels) {
           var el = document.querySelector(s);
           if (el) {
@@ -452,12 +472,7 @@ final class WebViewWhatsAppService implements WhatsAppSenderService {
     log('M3: InputEvent beforeinput');
     await ctrl.executeJavaScript('''
       (function(msg) {
-        var sels = [
-          'div[contenteditable="true"][data-tab="10"]',
-          'div[contenteditable="true"][aria-label*="mensagem"]',
-          'div[contenteditable="true"][aria-label*="message"]',
-          'footer div[contenteditable="true"]'
-        ];
+        var sels = $_kMsgBoxSelsJs;
         for (var s of sels) {
           var el = document.querySelector(s);
           if (el) {
@@ -486,12 +501,7 @@ final class WebViewWhatsAppService implements WhatsAppSenderService {
     log('M4: ClipboardEvent paste');
     await ctrl.executeJavaScript('''
       (function(msg) {
-        var sels = [
-          'div[contenteditable="true"][data-tab="10"]',
-          'div[contenteditable="true"][aria-label*="mensagem"]',
-          'div[contenteditable="true"][aria-label*="message"]',
-          'footer div[contenteditable="true"]'
-        ];
+        var sels = $_kMsgBoxSelsJs;
         for (var s of sels) {
           var el = document.querySelector(s);
           if (el) {
@@ -547,6 +557,10 @@ final class WebViewWhatsAppService implements WhatsAppSenderService {
             'span[data-icon="new-chat-outline"]',
             'span[data-icon="search"]',
             '[data-testid="chat-list-search"]',
+            'button[aria-label="Pesquisar"]',
+            'button[aria-label="Search"]',
+            'button[aria-label="Nova conversa"]',
+            'button[aria-label="New chat"]',
             'div[contenteditable="true"][data-tab="3"]'
           ];
           for (var sel of sels) {
@@ -567,31 +581,32 @@ final class WebViewWhatsAppService implements WhatsAppSenderService {
       log('Search open: $searchOpened');
       if (searchOpened == 'not_found') return false;
 
-      await Future.delayed(const Duration(milliseconds: 400));
+      await Future.delayed(const Duration(milliseconds: 800));
 
-      // 3. Encontra a caixa de pesquisa e digita o telefone
-      final typed = await ctrl.executeJavaScript('''
-        (function(phone) {
-          var sels = [
-            'div[contenteditable="true"][data-tab="3"]',
-            'div[contenteditable="true"][aria-label*="Pesquisar"]',
-            'div[contenteditable="true"][aria-label*="Search"]',
-            '[data-testid="chat-list-search"] div[contenteditable="true"]'
-          ];
-          for (var s of sels) {
-            var el = document.querySelector(s);
-            if (el) {
-              el.focus();
-              document.execCommand('selectAll', false, null);
-              document.execCommand('delete', false, null);
-              document.execCommand('insertText', false, phone);
-              el.dispatchEvent(new Event('input', {bubbles: true}));
-              return 'typed';
+      // 3. Encontra a caixa de pesquisa e digita o telefone (com retry)
+      String typed = 'no_search_box';
+      for (int attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0)
+          await Future.delayed(const Duration(milliseconds: 500));
+        typed = await ctrl.executeJavaScript('''
+          (function(phone) {
+            var sels = $_kSearchBoxSelsJs;
+            for (var s of sels) {
+              var el = document.querySelector(s);
+              if (el) {
+                el.focus();
+                document.execCommand('selectAll', false, null);
+                document.execCommand('delete', false, null);
+                document.execCommand('insertText', false, phone);
+                el.dispatchEvent(new Event('input', {bubbles: true}));
+                return 'typed';
+              }
             }
-          }
-          return 'no_search_box';
-        })(${jsonEncode(tel)})
-      ''');
+            return 'no_search_box';
+          })(${jsonEncode(tel)})
+        ''');
+        if (typed == 'typed') break;
+      }
       log('Digitou tel: $typed');
       if (typed != 'typed') return false;
 
@@ -665,12 +680,7 @@ final class WebViewWhatsAppService implements WhatsAppSenderService {
               if (t.includes('invalid') || t.includes('inválid') ||
                   t.includes('phone number') || t.includes('número')) return 'error';
             }
-            var sels = [
-              'div[contenteditable="true"][data-tab="10"]',
-              'div[contenteditable="true"][aria-label*="mensagem"]',
-              'div[contenteditable="true"][aria-label*="message"]',
-              'footer div[contenteditable="true"]'
-            ];
+            var sels = $_kMsgBoxSelsJs;
             for (var s of sels) {
               if (document.querySelector(s)) return 'ready';
             }
@@ -734,10 +744,7 @@ final class WebViewWhatsAppService implements WhatsAppSenderService {
     log('Tentando Enter no campo de texto');
     final enterOk = await ctrl.executeJavaScript('''
       (function() {
-        var sels = [
-          'div[contenteditable="true"][data-tab="10"]',
-          'footer div[contenteditable="true"]'
-        ];
+        var sels = $_kMsgBoxSelsJs;
         for (var s of sels) {
           var el = document.querySelector(s);
           if (el) {
